@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Мини-игры</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg: var(--tg-theme-bg-color, #ffffff);
+  --text: var(--tg-theme-text-color, #1c1c1e);
+  --hint: var(--tg-theme-hint-color, #8e8e93);
+  --btn: var(--tg-theme-button-color, #2f7de1);
+  --btn-text: var(--tg-theme-button-text-color, #ffffff);
+  --card: var(--tg-theme-secondary-bg-color, #f1f1f4);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:17px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:480px;margin:0 auto;padding:20px 16px;min-height:100%;display:flex;flex-direction:column}
+h1{font-size:28px;margin:8px 0 20px}
+h2{font-size:22px;margin:0 0 4px}
+p{margin:0 0 12px;color:var(--hint)}
+.screen{display:none;flex:1;flex-direction:column}
+.screen.on{display:flex}
+.menu-item{background:var(--card);border:0;border-radius:16px;padding:18px;margin-bottom:12px;
+  text-align:left;color:var(--text);font:inherit;width:100%}
+.menu-item b{display:block;font-size:20px}
+.menu-item span{color:var(--hint);font-size:15px}
+.btn{background:var(--btn);color:var(--btn-text);border:0;border-radius:14px;
+  padding:14px 20px;font:inherit;font-weight:600;width:100%}
+.btn.ghost{background:var(--card);color:var(--text);margin-top:10px}
+.stats{display:flex;gap:12px;margin:12px 0}
+.stat{flex:1;background:var(--card);border-radius:14px;padding:10px 14px}
+.stat small{color:var(--hint);display:block;font-size:13px}
+.stat strong{font-size:26px;font-variant-numeric:tabular-nums}
+/* Тап-тест */
+#tapBtn{flex:1;min-height:240px;border-radius:28px;border:0;background:var(--btn);color:var(--btn-text);
+  font:700 34px system-ui;transition:transform .05s}
+#tapBtn:active{transform:scale(.97)}
+#tapBtn:disabled{opacity:.45}
+/* Угадай число */
+.guess-row{display:flex;gap:10px;margin:12px 0}
+#guessInput{flex:1;min-width:0;font:inherit;font-size:22px;padding:12px;border-radius:14px;
+  border:2px solid var(--card);background:var(--card);color:var(--text);user-select:text}
+#guessInput:focus{outline:none;border-color:var(--btn)}
+.guess-row .btn{width:auto}
+#hint{font-size:20px;font-weight:600;min-height:30px;margin:8px 0}
+#history{color:var(--hint);font-size:15px}
+</style>
+</head>
+<body>
+<main>
+
+  <!-- Меню -->
+  <section id="menu" class="screen on">
+    <h1>Мини-игры</h1>
+    <button class="menu-item" data-go="tap"><b>Тап-тест</b><span>Сколько раз успеешь нажать за 10 секунд. Рекорд: <i id="bestTap">0</i></span></button>
+    <button class="menu-item" data-go="guess"><b>Угадай число</b><span>От 1 до 100 за минимум попыток. Рекорд: <i id="bestGuess">—</i></span></button>
+  </section>
+
+  <!-- Игра 1 -->
+  <section id="tap" class="screen">
+    <h2>Тап-тест</h2>
+    <p>Первое нажатие запускает таймер.</p>
+    <div class="stats">
+      <div class="stat"><small>Время</small><strong id="tapTime">10.0</strong></div>
+      <div class="stat"><small>Нажатия</small><strong id="tapCount">0</strong></div>
+    </div>
+    <button id="tapBtn">Жми!</button>
+    <button class="btn ghost" data-go="menu">В меню</button>
+  </section>
+
+  <!-- Игра 2 -->
+  <section id="guess" class="screen">
+    <h2>Угадай число</h2>
+    <p>Я загадал число от 1 до 100.</p>
+    <div class="stats">
+      <div class="stat"><small>Попытки</small><strong id="guessTries">0</strong></div>
+    </div>
+    <div id="hint"></div>
+    <div class="guess-row">
+      <input id="guessInput" type="number" inputmode="numeric" min="1" max="100" placeholder="1–100">
+      <button class="btn" id="guessBtn">Проверить</button>
+    </div>
+    <div id="history"></div>
+    <div style="flex:1"></div>
+    <button class="btn ghost" id="guessNew">Новая игра</button>
+    <button class="btn ghost" data-go="menu">В меню</button>
+  </section>
+
+</main>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const $ = id => document.getElementById(id);
+const buzz = t => { try { tg.HapticFeedback.notificationOccurred(t) } catch(e){} };
+const tick = () => { try { tg.HapticFeedback.impactOccurred('light') } catch(e){} };
+
+// Рекорды (сохраняются в самом Telegram на этом устройстве)
+const store = {
+  get(k, d){ try { return JSON.parse(localStorage.getItem(k)) ?? d } catch(e){ return d } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)) } catch(e){} }
+};
+function showBest(){
+  $('bestTap').textContent = store.get('bestTap', 0);
+  const g = store.get('bestGuess', null);
+  $('bestGuess').textContent = g ?? '—';
+}
+
+// Навигация
+function go(id){
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id));
+  if (id === 'menu') showBest();
+  if (id === 'tap') resetTap();
+  if (id === 'guess') newGuess();
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-go]');
+  if (t) go(t.dataset.go);
+});
+
+/* ---------- Игра 1: Тап-тест ---------- */
+let tapN = 0, tapEnd = 0, tapTimer = null;
+function resetTap(){
+  clearInterval(tapTimer); tapTimer = null; tapN = 0;
+  $('tapCount').textContent = 0; $('tapTime').textContent = '10.0';
+  $('tapBtn').disabled = false; $('tapBtn').textContent = 'Жми!';
+}
+function finishTap(){
+  clearInterval(tapTimer); tapTimer = null;
+  $('tapTime').textContent = '0.0';
+  $('tapBtn').disabled = true;
+  const best = store.get('bestTap', 0);
+  const record = tapN > best;
+  if (record) store.set('bestTap', tapN);
+  $('tapBtn').textContent = record ? `Рекорд: ${tapN}!` : `Итого: ${tapN}`;
+  buzz(record ? 'success' : 'warning');
+  setTimeout(() => { $('tapBtn').disabled = false; $('tapBtn').textContent = 'Ещё раз'; tapN = -1; }, 1200);
+}
+$('tapBtn').addEventListener('pointerdown', () => {
+  if (tapN === -1) { resetTap(); return; }
+  if (!tapTimer) {
+    tapEnd = Date.now() + 10000;
+    tapTimer = setInterval(() => {
+      const left = tapEnd - Date.now();
+      if (left <= 0) finishTap();
+      else $('tapTime').textContent = (left / 1000).toFixed(1);
+    }, 50);
+  }
+  tapN++; $('tapCount').textContent = tapN; tick();
+});
+
+/* ---------- Игра 2: Угадай число ---------- */
+let secret = 0, tries = 0, over = false;
+function newGuess(){
+  secret = 1 + Math.floor(Math.random() * 100);
+  tries = 0; over = false;
+  $('guessTries').textContent = 0;
+  $('hint').textContent = ''; $('history').textContent = '';
+  $('guessInput').value = ''; $('guessInput').disabled = false;
+}
+function check(){
+  if (over) return;
+  const n = parseInt($('guessInput').value, 10);
+  if (!(n >= 1 && n <= 100)) { $('hint').textContent = 'Введи число от 1 до 100'; return; }
+  tries++; $('guessTries').textContent = tries;
+  $('history').textContent += (tries > 1 ? ' · ' : 'Ходы: ') + n;
+  $('guessInput').value = '';
+  if (n === secret) {
+    over = true; $('guessInput').disabled = true;
+    const best = store.get('bestGuess', null);
+    const record = best === null || tries < best;
+    if (record) store.set('bestGuess', tries);
+    $('hint').textContent = `Угадал за ${tries}!` + (record ? ' Новый рекорд 🎉' : '');
+    buzz('success');
+  } else {
+    $('hint').textContent = n < secret ? 'Больше ⬆️' : 'Меньше ⬇️';
+    tick();
+  }
+}
+$('guessBtn').addEventListener('click', check);
+$('guessInput').addEventListener('keydown', e => { if (e.key === 'Enter') check(); });
+$('guessNew').addEventListener('click', newGuess);
+
+showBest();
+</script>
+</body>
+</html>
